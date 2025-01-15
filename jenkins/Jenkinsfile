@@ -1,7 +1,7 @@
 pipeline {
     agent {
         docker {
-            image 'maven:3.9.0'
+            image 'maven:3.9.5'  // Updated Maven version
             args '-v /root/.m2:/root/.m2'
         }
     }
@@ -23,8 +23,17 @@ pipeline {
         }
         stage('Deliver') {
             steps {
+                sh 'chmod +x ./jenkins/scripts/deliver.sh'
                 sh './jenkins/scripts/deliver.sh'
             }
+        }
+    }
+    post {
+        failure {
+            echo 'Pipeline failed! Check the logs for details.'
+        }
+        success {
+            echo 'Pipeline completed successfully!'
         }
     }
 }
