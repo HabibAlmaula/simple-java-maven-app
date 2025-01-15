@@ -1,13 +1,15 @@
 pipeline {
     agent {
         docker {
-            image 'maven:3.9.5'  // Updated Maven version
-            args '-v /root/.m2:/root/.m2'
+            image 'maven:3.9.5'
+            args '-v maven-repo:/home/jenkins/.m2'  // Changed to jenkins user home
         }
     }
     stages {
         stage('Build') {
             steps {
+                // Create .m2 directory with correct permissions
+                sh 'mkdir -p /home/jenkins/.m2'
                 sh 'mvn -B -DskipTests clean package'
             }
         }
