@@ -10,7 +10,7 @@ pipeline {
             steps {
                 // Create .m2 directory with correct permissions
                 sh 'mkdir -p /home/jenkins/.m2'
-                sh 'mvn -B -DskipTests clean package'
+                sh 'mvn -B -DskipTests -e clean package'
             }
         }
         stage('Test') {
