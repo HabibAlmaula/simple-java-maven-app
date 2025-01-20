@@ -8,9 +8,11 @@ pipeline {
     stages {
         stage('Build') {
             steps {
-                // Create .m2 directory with correct permissions
-                sh 'mkdir -p /home/jenkins/.m2'
-                sh 'mvn -B -DskipTests -e clean package'
+                sh '''
+                mkdir -p /home/jenkins/.m2
+                chmod -R 777 /home/jenkins/.m2
+                mvn -Duser.home=/home/jenkins -B -DskipTests -e clean package
+                '''
             }
         }
         stage('Test') {
