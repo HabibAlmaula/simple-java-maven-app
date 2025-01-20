@@ -2,17 +2,14 @@ pipeline {
     agent {
         docker {
             image 'maven:3.9.5'
-            args '-v maven-repo:/home/jenkins/.m2'  // Changed to jenkins user home
+            args '-v maven-repo:/home/jenkins/.m2 -v $HOME/.m2:/root/.m2 --user root'  // Added root user and mounted root .m2
         }
     }
     stages {
         stage('Build') {
             steps {
-                sh '''
-                mkdir -p /home/jenkins/.m2
-                chmod -R 777 /home/jenkins/.m2
-                mvn -Duser.home=/home/jenkins -B -DskipTests -e clean package
-                '''
+                sh 'mkdir -p /root/.m2'  // Create directory for root user
+                sh 'mvn -B -DskipTests -e clean package'
             }
         }
         stage('Test') {
