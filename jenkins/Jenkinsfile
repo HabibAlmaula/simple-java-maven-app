@@ -1,40 +1,47 @@
-pipeline {
-    agent {
-        docker {
-            image 'maven:3.9.5'
-            args '-v maven-repo:/home/jenkins/.m2 -v $HOME/.m2:/root/.m2 --user root'  // Added root user and mounted root .m2
-        }
-    }
-    stages {
-        stage('Build') {
-            steps {
-                sh 'mkdir -p /root/.m2'  // Create directory for root user
+node {
+    // Define the docker container
+    def dockerContainer = docker.image('maven:3.9.5')
+    
+    // Wrap all stages in the docker container
+    dockerContainer.inside('-v maven-repo:/home/jenkins/.m2 -v $HOME/.m2:/root/.m2 --user root') {
+        try {
+            stage('Checkout') {
+                // Checkout code from source control
+                checkout scm
+            }
+            
+            stage('Build') {
+                // Create directory for root user
+                sh 'mkdir -p /root/.m2'
+                // Print working directory and list files for debugging
+                sh 'pwd && ls -la'
+                // Build without tests
                 sh 'mvn -B -DskipTests -e clean package'
             }
-        }
-        stage('Test') {
-            steps {
-                sh 'mvn test'
-            }
-            post {
-                always {
+            
+            stage('Test') {
+                try {
+                    sh 'mvn test'
+                } finally {
+                    // The 'always' condition in scripted pipeline
                     junit 'target/surefire-reports/*.xml'
                 }
             }
-        }
-        stage('Deliver') {
-            steps {
-                sh 'chmod +x ./jenkins/scripts/deliver.sh'
-                sh './jenkins/scripts/deliver.sh'
+            
+            stage('Deliver') {
+                sh '''
+                    chmod +x ./jenkins/scripts/deliver.sh
+                    ./jenkins/scripts/deliver.sh
+                '''
             }
-        }
-    }
-    post {
-        failure {
-            echo 'Pipeline failed! Check the logs for details.'
-        }
-        success {
+            
+            // Success post condition
             echo 'Pipeline completed successfully!'
+            
+        } catch (Exception e) {
+            // Failure post condition
+            echo 'Pipeline failed! Check the logs for details.'
+            throw e  // Re-throw the exception to mark the build as failed
         }
     }
 }
