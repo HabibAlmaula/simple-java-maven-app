@@ -3,11 +3,8 @@ node {
     def dockerContainer = docker.image('maven:3.9.5')
     
     // Wrap all stages in the docker container
-    dockerContainer.inside('-v maven-repo:/home/jenkins/.m2 -v $HOME/.m2:/root/.m2 --user root -p 4040:4040') {
+    dockerContainer.inside('-v maven-repo:/home/jenkins/.m2 -v $HOME/.m2:/root/.m2 --user root -p 3333:3333') {
         try {
-            stage('Clean Workspace') {
-                cleanWs()
-            }
             stage('Checkout') {
                 // Checkout code from source control
                 checkout scm
@@ -48,8 +45,6 @@ node {
             // Failure post condition
             echo 'Pipeline failed! Check the logs for details.'
             throw e  // Re-throw the exception to mark the build as failed
-        } finally {
-            cleanWs()
         }
     }
 }
