@@ -7,11 +7,9 @@ node {
         try {
             //clean workspace
             stage('Clean Workspace') {
-                steps {
-                    cleanWs()
-                }
+                cleanWs()
             }
-            
+
             stage('Checkout') {
                 // Checkout code from source control
                 checkout scm
