@@ -32,8 +32,10 @@ node {
                 sh '''
                     chmod +x ./jenkins/scripts/deliver.sh
                     ./jenkins/scripts/deliver.sh
-                    sleep 200  # Sleep for 1 minute
+                    #sleep 200  # Sleep for 1 minute
                 '''
+                input message: 'Finished using the website? (Click "Proceed" to continue)'
+
             }
             
             // Success post condition
