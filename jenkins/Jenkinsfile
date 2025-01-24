@@ -3,7 +3,7 @@ node {
     def dockerContainer = docker.image('maven:3.9.5')
     
     // Wrap all stages in the docker container
-    dockerContainer.inside('-v maven-repo:/home/jenkins/.m2 -v $HOME/.m2:/root/.m2 --user root -p 3333:3333') {
+    dockerContainer.inside('-v maven-repo:/home/jenkins/.m2 -v $HOME/.m2:/root/.m2 --user root') {
         try {
             stage('Checkout') {
                 // Checkout code from source control
