@@ -21,8 +21,9 @@ public class App {
     public static void main(String[] args) {
         SpringApplication.run(App.class, args);
 
-        //log port number
-        System.out.println("Server started on port ${server.port}");
+       // Log actual port
+       String port = System.getProperty("server.port");
+       System.out.println("Server started on port " + port);
     }
 }
 
