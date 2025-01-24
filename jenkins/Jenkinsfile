@@ -5,6 +5,12 @@ node {
     // Wrap all stages in the docker container
     dockerContainer.inside('-v maven-repo:/home/jenkins/.m2 -v $HOME/.m2:/root/.m2 --user root -p 3333:3333') {
         try {
+            //clean workspace
+            stage('Clean Workspace') {
+                steps {
+                    cleanWs()
+                }
+            }
             stage('Checkout') {
                 // Checkout code from source control
                 checkout scm
