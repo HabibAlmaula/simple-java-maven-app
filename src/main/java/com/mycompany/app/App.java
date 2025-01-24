@@ -8,10 +8,6 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Hello world!
  */
-
-@Value("${server.port}")
-private int serverPort;
-
 @SpringBootApplication
 @RestController
 public class App {
@@ -24,10 +20,6 @@ public class App {
 
     public static void main(String[] args) {
         SpringApplication.run(App.class, args);
-
-       // Log actual port
-       String port = System.getProperty("server.port");
-       System.out.println("Server started on port " + serverPort);
     }
 }
 
