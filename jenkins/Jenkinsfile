@@ -11,6 +11,7 @@ node {
                     cleanWs()
                 }
             }
+            
             stage('Checkout') {
                 // Checkout code from source control
                 checkout scm
