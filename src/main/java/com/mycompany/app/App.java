@@ -19,8 +19,10 @@ public class App {
     }
 
     public static void main(String[] args) {
-        System.setProperty("server.port", "4040");
         SpringApplication.run(App.class, args);
+
+        //log port number
+        System.out.println("Server started on port ${server.port}");
     }
 }
 
