@@ -103,20 +103,21 @@ pipeline {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def setupCmd = """ 
-                            # Create docker-compose.yml with proper indentation and variable expansion
-                            cat > /opt/springboot-app/docker-compose.yml << EOF
-        version: '3.8'
-        services:
-        app:
-            image: \${DOCKER_IMAGE_NAME}:\${IMAGE_TAG}
-            ports:
-            - "8080:8080"
-            restart: always
-        EOF
-
-                            # Verify the file was created
-                            echo "Contents of docker-compose.yml:"
+                        // Create a properly formatted docker-compose.yml file
+                        def setupCmd = """
+                            mkdir -p /opt/springboot-app
+                            
+                            # Creating docker-compose.yml with explicit formatting
+                            echo 'version: \"3.8\"' > /opt/springboot-app/docker-compose.yml
+                            echo 'services:' >> /opt/springboot-app/docker-compose.yml
+                            echo '  app:' >> /opt/springboot-app/docker-compose.yml
+                            echo '    image: \${DOCKER_IMAGE_NAME}:\${IMAGE_TAG}' >> /opt/springboot-app/docker-compose.yml
+                            echo '    ports:' >> /opt/springboot-app/docker-compose.yml
+                            echo '      - \"8080:8080\"' >> /opt/springboot-app/docker-compose.yml
+                            echo '    restart: always' >> /opt/springboot-app/docker-compose.yml
+                            
+                            # Verify the file contents
+                            echo "Generated docker-compose.yml contents:"
                             cat /opt/springboot-app/docker-compose.yml
                         """
                         
@@ -140,13 +141,24 @@ pipeline {
                             # Navigate to app directory
                             cd /opt/springboot-app
                             
+                            # Verify docker-compose.yml contents before deployment
+                            echo "Current docker-compose.yml contents:"
+                            cat docker-compose.yml
+                            
                             # Pull and restart containers
                             docker compose pull
                             docker compose up -d --force-recreate
                             
-                            # Verify deployment
-                            echo "Checking container status:"
+                            # Wait for container to start
+                            sleep 10
+                            
+                            # Check deployment status
+                            echo "Container status:"
                             docker compose ps
+                            
+                            # Check container logs
+                            echo "Container logs:"
+                            docker compose logs
                         """
                         
                         sh """
