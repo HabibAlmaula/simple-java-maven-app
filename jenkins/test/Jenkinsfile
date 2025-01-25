@@ -1,0 +1,50 @@
+pipeline {
+    agent any
+    
+    stages {
+        stage('Test Credentials') {
+            steps {
+                script {
+                    // First verify required tools are installed
+                    sh '''
+                        echo "Checking installed tools..."
+                        echo "Docker version:"
+                        docker --version
+                        
+                        echo "\nAWS CLI version:"
+                        aws --version
+                    '''
+                    
+                    withCredentials([
+                        usernamePassword(credentialsId: 'docker-hub-credentials', 
+                                      usernameVariable: 'DOCKER_USER', 
+                                      passwordVariable: 'DOCKER_PASS'),
+                        aws(credentialsId: 'aws-credentials-id', 
+                            region: 'your-aws-region')
+                    ]) {
+                        sh '''
+                            echo "\nTesting Docker Hub authentication..."
+                            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                            
+                            echo "\nTesting AWS credentials..."
+                            aws configure list
+                            aws sts get-caller-identity
+                        '''
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            sh 'docker logout'
+        }
+        success {
+            echo 'All credential tests completed successfully!'
+        }
+        failure {
+            echo 'Credential testing failed. Please check the logs above for specific errors.'
+        }
+    }
+}
