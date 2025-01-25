@@ -99,61 +99,58 @@ pipeline {
             }
         }
 
-        stage('Setup EC2') {
+        stage('Deploy to EC2') {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def setupCmd = """
-                            # Create directory if it doesn't exist
-                            sudo mkdir -p /opt/springboot-app
-                            
-                            # Create docker-compose.yml with proper indentation and variable expansion
-                            cat > /opt/springboot-app/docker-compose.yml << EOF
-        version: '3.8'
-        services:
-        app:
-            image: \${DOCKER_IMAGE_NAME}:\${IMAGE_TAG}
-            ports:
-            - "8080:8080"
-            restart: always
-        EOF
-
-                            # Verify the file was created
-                            echo "Contents of docker-compose.yml:"
-                            cat /opt/springboot-app/docker-compose.yml
-                        """
-                        
-                        sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ubuntu@47.129.50.98 '${setupCmd}'
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('Deploy to EC2') {
-            steps {
-                withCredentials([
-                    sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY'),
-                    aws(credentialsId: 'aws-credentials-id', region: 'ap-southeast-1')
-                ]) {
-                    script {
                         def deployCmd = """
+                            # Export deployment variables
                             export DOCKER_IMAGE_NAME=${DOCKER_IMAGE}
                             export IMAGE_TAG=${DOCKER_TAG}
+                            
+                            # Navigate to app directory
                             cd /opt/springboot-app
+                            
+                            # Pull and restart containers
                             docker compose pull
                             docker compose up -d --force-recreate
+                            
+                            # Verify deployment
+                            echo "Checking container status:"
+                            docker compose ps
                         """
                         
-                        // Use the environment variables for SSH connection
                         sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${deployCmd}'
+                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ubuntu@47.129.50.98 '${deployCmd}'
                         """
                     }
                 }
             }
         }
+
+        // stage('Deploy to EC2') {
+        //     steps {
+        //         withCredentials([
+        //             sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY'),
+        //             aws(credentialsId: 'aws-credentials-id', region: 'ap-southeast-1')
+        //         ]) {
+        //             script {
+        //                 def deployCmd = """
+        //                     export DOCKER_IMAGE_NAME=${DOCKER_IMAGE}
+        //                     export IMAGE_TAG=${DOCKER_TAG}
+        //                     cd /opt/springboot-app
+        //                     docker compose pull
+        //                     docker compose up -d --force-recreate
+        //                 """
+                        
+        //                 // Use the environment variables for SSH connection
+        //                 sh """
+        //                     ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${deployCmd}'
+        //                 """
+        //             }
+        //         }
+        //     }
+        // }
     }
     
     post {
