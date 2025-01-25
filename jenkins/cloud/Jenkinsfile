@@ -101,45 +101,27 @@ pipeline {
 
         stage('Setup EC2') {
             steps {
-                withCredentials([
-                    sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')
-                ]) {
+                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def setupCommands = """
-                            # Update package list
-                            sudo apt-get update
-                            
-                            # Install Docker if not installed
-                            if ! command -v docker &> /dev/null; then
-                                curl -fsSL https://get.docker.com -o get-docker.sh
-                                sudo sh get-docker.sh
-                                sudo usermod -aG docker ubuntu
-                            fi
-                            
-                            # Install Docker Compose
-                            sudo apt-get install -y docker-compose-plugin
-                            
-                            # Create application directory
+                        def setupCmd = """
+                            # Create directory if it doesn't exist
                             sudo mkdir -p /opt/springboot-app
                             sudo chown ubuntu:ubuntu /opt/springboot-app
                             
-                            # Create docker-compose.yml file
-                            cat << 'EOF' > /opt/springboot-app/docker-compose.yml
+                            # Create docker-compose.yml with proper indentation and variable expansion
+                            cat > /opt/springboot-app/docker-compose.yml << EOF
         version: '3.8'
-
         services:
-        springboot-app:
+        app:
             image: \${DOCKER_IMAGE_NAME}:\${IMAGE_TAG}
             ports:
             - "8080:8080"
             restart: always
-            environment:
-            - SPRING_PROFILES_ACTIVE=prod
         EOF
                         """
                         
                         sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ubuntu@47.129.50.98 '${setupCommands}'
+                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ubuntu@47.129.50.98 '${setupCmd}'
                         """
                     }
                 }
