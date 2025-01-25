@@ -103,10 +103,7 @@ pipeline {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def setupCmd = """
-                            # Create directory if it doesn't exist
-                            mkdir -p /opt/springboot-app
-                            
+                        def setupCmd = """ 
                             # Create docker-compose.yml with proper indentation and variable expansion
                             cat > /opt/springboot-app/docker-compose.yml << EOF
         version: '3.8'
