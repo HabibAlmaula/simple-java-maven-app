@@ -134,45 +134,105 @@ pipeline {
             }
         }
 
-         stage('Deploy to EC2') {
+//          stage('Deploy to EC2') {
+//             steps {
+//                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
+//                     script {
+//                         // Create deployment directory and docker-compose file
+//                         def setupCommands = """
+//                             mkdir -p ${DEPLOY_DIR}
+                            
+//                             cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
+// version: "3.8"
+// services:
+//   app:
+//     image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+//     container_name: ${APP_NAME}
+//     ports:
+//       - "8080:8080"
+//     restart: always
+//     healthcheck:
+//       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+//       interval: 30s
+//       timeout: 10s
+//       retries: 3
+// EOL
+
+//                             # Pull and deploy the new version
+//                             cd ${DEPLOY_DIR}
+//                             docker compose pull
+//                             docker compose up -d --force-recreate
+                            
+//                             # Wait for container to be healthy
+//                             echo "Waiting for container to be healthy..."
+//                             sleep 30
+                            
+//                             # Check deployment status
+//                             docker compose ps
+//                             docker compose logs --tail 50
+//                         """
+                        
+//                         // Execute deployment on EC2
+//                         sh """
+//                             ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
+//                         """
+//                     }
+//                 }
+//             }
+//         }
+
+        stage('Deploy to EC2') {
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
+                withCredentials([
+                    sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY'),
+                    usernamePassword(credentialsId: 'docker-hub-credentials', 
+                                usernameVariable: 'DOCKER_USER', 
+                                passwordVariable: 'DOCKER_PASS')
+                ]) {
                     script {
-                        // Create deployment directory and docker-compose file
                         def setupCommands = """
                             mkdir -p ${DEPLOY_DIR}
                             
+                            # Login to Docker Hub
+                            echo \${DOCKER_PASS} | docker login -u \${DOCKER_USER} --password-stdin
+                            
                             cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
-version: "3.8"
-services:
-  app:
-    image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-    container_name: ${APP_NAME}
-    ports:
-      - "8080:8080"
-    restart: always
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-EOL
+        services:
+        app:
+            image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+            container_name: ${APP_NAME}
+            ports:
+            - "8080:8080"
+            restart: always
+            pull_policy: always
+            healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+        EOL
 
                             # Pull and deploy the new version
                             cd ${DEPLOY_DIR}
-                            docker compose pull
-                            docker compose up -d --force-recreate
+                            docker compose pull || exit 1
+                            docker compose up -d --force-recreate || exit 1
                             
-                            # Wait for container to be healthy
+                            # Wait for container to be healthy with timeout
                             echo "Waiting for container to be healthy..."
-                            sleep 30
+                            timeout 60 bash -c 'until docker compose ps | grep -q "(healthy)"; do sleep 5; done' || {
+                                echo "Container failed to become healthy within timeout"
+                                docker compose logs
+                                exit 1
+                            }
                             
-                            # Check deployment status
-                            docker compose ps
-                            docker compose logs --tail 50
+                            # Verify deployment
+                            if ! docker compose ps | grep -q "Up"; then
+                                echo "Container failed to start properly"
+                                docker compose logs
+                                exit 1
+                            fi
                         """
                         
-                        // Execute deployment on EC2
                         sh """
                             ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
                         """
