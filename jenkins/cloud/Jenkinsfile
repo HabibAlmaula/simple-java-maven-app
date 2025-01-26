@@ -141,25 +141,18 @@ pipeline {
                     usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')
                 ]) {
                     script {
-                        // Create a secure login script that properly handles credentials
-                        def dockerLogin = "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
-                        
-                        // Create the deployment script with proper escaping and formatting
-                        def deployScript = """#!/bin/bash
-                            # First, perform Docker login
-                            DOCKER_USER='${DOCKER_USER}'
-                            DOCKER_PASS='${DOCKER_PASS}'
-                            echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
+                        def deployScript = '''#!/bin/bash
+                            set -e
                             
                             # Create deployment directory
-                            mkdir -p ${DEPLOY_DIR}
+                            mkdir -p /opt/springboot-app
                             
-                            # Create docker-compose.yml with proper indentation
-                            cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOF'
+                            # Create docker-compose.yml
+                            cat > /opt/springboot-app/docker-compose.yml << 'EOF'
         services:
         app:
-            image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-            container_name: ${APP_NAME}
+            image: ''' + "${DOCKER_IMAGE}:${DOCKER_TAG}" + '''
+            container_name: spring-boot-app
             ports:
             - "8080:8080"
             restart: always
@@ -169,44 +162,33 @@ pipeline {
             timeout: 10s
             retries: 3
         EOF
+
+                            # Verify the file was created correctly
+                            echo "Verifying docker-compose.yml content:"
+                            cat /opt/springboot-app/docker-compose.yml
                             
                             # Deploy the application
-                            cd ${DEPLOY_DIR}
-                            
-                            # Clean up existing deployment
+                            cd /opt/springboot-app
                             docker compose down || true
-                            docker image rm ${DOCKER_IMAGE}:${DOCKER_TAG} || true
-                            
-                            # Deploy new version
                             docker compose pull
                             docker compose up -d --force-recreate
                             
-                            # Monitor deployment
-                            echo "Waiting for container to start..."
-                            sleep 10
-                            
-                            # Check container health
+                            # Wait for container to be healthy
+                            echo "Waiting for container to become healthy..."
                             for i in {1..6}; do
-                                if docker ps --filter "name=${APP_NAME}" --format "{{.Status}}" | grep -q "healthy"; then
+                                if docker ps --filter "name=spring-boot-app" --format "{{.Status}}" | grep -q "healthy"; then
                                     echo "Container is healthy!"
                                     break
                                 fi
-                                echo "Attempt \$i/6: Waiting for container to become healthy..."
-                                docker compose logs --tail 20
+                                echo "Attempt $i/6: Waiting for container to become healthy..."
                                 sleep 10
                             done
-                            
-                            # Show final status
-                            docker compose ps
-                            echo "Application response:"
-                            curl -s http://localhost:8080/
-                            
-                            # Cleanup
-                            docker logout
-                        """
+                        '''
                         
-                        // Write the script to a temporary file and execute it over SSH
+                        // Write deployment script to a file
                         writeFile file: 'deploy.sh', text: deployScript
+                        
+                        // Execute deployment
                         sh """
                             chmod +x deploy.sh
                             scp -i \$SSH_KEY -o StrictHostKeyChecking=no deploy.sh ${EC2_USER}@${EC2_IP}:/tmp/deploy.sh
@@ -217,31 +199,45 @@ pipeline {
                 }
             }
         }
+
         stage('Verify Deployment') {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def verifyCommands = """
-                            cd ${DEPLOY_DIR}
+                        def verificationScript = '''#!/bin/bash
+                            cd /opt/springboot-app
                             
-                            echo "Container Information:"
-                            docker ps --format "{{.Names}}\\t{{.Image}}\\t{{.Status}}"
+                            echo "Current docker-compose.yml content:"
+                            cat docker-compose.yml
                             
-                            echo "\\nApplication Response:"
+                            echo -e "\nContainer Information:"
+                            docker ps --format "{{.Names}}	{{.Image}}	{{.Status}}"
+                            
+                            echo -e "\nApplication Response:"
                             curl -s http://localhost:8080/
                             
-                            echo "\\nContainer Logs:"
-                            docker compose logs --tail 20
-                        """
+                            echo -e "\nContainer Logs:"
+                            if [ -f "docker-compose.yml" ]; then
+                                docker compose logs --tail 20
+                            else
+                                docker logs spring-boot-app --tail 20
+                            fi
+                        '''
                         
+                        // Write verification script to a file
+                        writeFile file: 'verify.sh', text: verificationScript
+                        
+                        // Execute verification
                         sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${verifyCommands}'
+                            chmod +x verify.sh
+                            scp -i \$SSH_KEY -o StrictHostKeyChecking=no verify.sh ${EC2_USER}@${EC2_IP}:/tmp/verify.sh
+                            ssh -i \$SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} 'bash /tmp/verify.sh'
+                            ssh -i \$SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} 'rm /tmp/verify.sh'
                         """
                     }
                 }
             }
         }
-    }
     
     post {
         always {
