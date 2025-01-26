@@ -319,13 +319,15 @@ pipeline {
                         )]) {
                             sh '''
                                 echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                                docker context create builder-context
-                                docker context use builder-context
-                                docker buildx create --name mybuilder --use --driver docker-container
-                                docker buildx inspect --bootstrap
+                                unset DOCKER_HOST
+                                docker context create mycontext
+                                docker --context mycontext buildx create --name mybuilder --use
+                                docker --context mycontext buildx inspect --bootstrap
                             '''
-                            sh "docker buildx build --platform linux/amd64,linux/arm64 -t ${DOCKER_IMAGE}:${DOCKER_TAG} . --push"
-                            sh "docker buildx build --platform linux/amd64,linux/arm64 -t ${DOCKER_IMAGE}:latest . --push"
+                            sh """
+                                docker --context mycontext buildx build --platform linux/amd64,linux/arm64 -t ${DOCKER_IMAGE}:${DOCKER_TAG} . --push
+                                docker --context mycontext buildx build --platform linux/amd64,linux/arm64 -t ${DOCKER_IMAGE}:latest . --push
+                            """
                         }
                     }
                 }
