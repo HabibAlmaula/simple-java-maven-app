@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 @SpringBootApplication
 @RestController
 public class App {
-    private static final String MESSAGE = "Hello World Updated again!";
+    private static final String MESSAGE = "Hello World Updated 123!";
 
     @GetMapping("/")
     public String getMessage() {
