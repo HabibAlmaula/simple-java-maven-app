@@ -2,8 +2,11 @@
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 
-# Base image with automatic platform detection
-FROM --platform=$TARGETPLATFORM eclipse-temurin:17-jdk-focal
+# Base image (removed redundant platform specification)
+FROM eclipse-temurin:17-jdk-focal
+
+# Redefine ARG after FROM as ARG values are cleared after FROM
+ARG TARGETPLATFORM
 
 # Add labels to track build information
 LABEL org.opencontainers.image.description="Spring Boot Application with multi-arch support"
