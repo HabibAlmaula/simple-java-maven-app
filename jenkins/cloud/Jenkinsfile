@@ -206,7 +206,6 @@ pipeline {
                                     break
                                 fi
                                 
-                                # Fixed the problematic line
                                 if docker compose ps | grep -q "unhealthy\\|exit"; then
                                     echo "Container failed health check or exited"
                                     docker compose logs --tail 100
@@ -236,28 +235,10 @@ pipeline {
                             docker compose logs --tail 20
                         """
                         
-                        def maxRetries = 3
-                        def retryCount = 0
-                        def deployed = false
-                        
-                        while (!deployed && retryCount < maxRetries) {
-                            try {
-                                sh """
-                                    ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${EC2_USER}@${EC2_IP} '${deploymentScript}'
-                                """
-                                deployed = true
-                                echo "Deployment completed successfully!"
-                            } catch (Exception e) {
-                                retryCount++
-                                if (retryCount < maxRetries) {
-                                    echo "Deployment attempt ${retryCount} failed. Retrying in 30 seconds..."
-                                    sleep 30
-                                } else {
-                                    echo "All deployment attempts failed. Last error: ${e.getMessage()}"
-                                    throw e
-                                }
-                            }
-                        }
+                        // Execute deployment
+                        sh """
+                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${EC2_USER}@${EC2_IP} "${deploymentScript}"
+                        """
                     }
                 }
             }
