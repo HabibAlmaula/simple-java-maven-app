@@ -138,10 +138,11 @@ pipeline {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        // Notice the careful preservation of indentation in the heredoc
+                        // We use triple quotes for the main command block
                         def setupCommands = """
                             mkdir -p ${DEPLOY_DIR}
                             
+                            # The cat heredoc needs to start with the delimiter immediately after 
                             cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
         version: "3.8"
         services:
@@ -169,8 +170,9 @@ pipeline {
                             # Check deployment status
                             docker compose ps
                             docker compose logs --tail 50
-                        """
+        """
                         
+                        // Execute the commands on the EC2 instance
                         sh """
                             ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
                         """
