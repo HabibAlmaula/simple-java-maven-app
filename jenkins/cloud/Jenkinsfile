@@ -141,14 +141,21 @@ pipeline {
                     usernamePassword(credentialsId: 'docker-hub-credentials', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')
                 ]) {
                     script {
-                        def setupCommands = """
-                            # Ensure docker is logged in
-                            echo "\${DOCKER_PASS}" | docker login -u "\${DOCKER_USER}" --password-stdin
+                        // Create a secure login script that properly handles credentials
+                        def dockerLogin = "echo \$DOCKER_PASS | docker login -u \$DOCKER_USER --password-stdin"
+                        
+                        // Create the deployment script with proper escaping and formatting
+                        def deployScript = """#!/bin/bash
+                            # First, perform Docker login
+                            DOCKER_USER='${DOCKER_USER}'
+                            DOCKER_PASS='${DOCKER_PASS}'
+                            echo "\$DOCKER_PASS" | docker login -u "\$DOCKER_USER" --password-stdin
                             
+                            # Create deployment directory
                             mkdir -p ${DEPLOY_DIR}
                             
-                            cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
-        # Remove version as it's no longer needed
+                            # Create docker-compose.yml with proper indentation
+                            cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOF'
         services:
         app:
             image: ${DOCKER_IMAGE}:${DOCKER_TAG}
@@ -161,49 +168,50 @@ pipeline {
             interval: 30s
             timeout: 10s
             retries: 3
-        EOL
-
+        EOF
+                            
+                            # Deploy the application
                             cd ${DEPLOY_DIR}
                             
-                            # Stop and remove existing containers
-                            docker compose down
-                            
-                            # Remove old images to force new image pull
+                            # Clean up existing deployment
+                            docker compose down || true
                             docker image rm ${DOCKER_IMAGE}:${DOCKER_TAG} || true
-                            docker image rm ${DOCKER_IMAGE}:latest || true
                             
-                            # Pull and start new container
+                            # Deploy new version
                             docker compose pull
                             docker compose up -d --force-recreate
                             
-                            # Wait for container to be healthy
+                            # Monitor deployment
                             echo "Waiting for container to start..."
                             sleep 10
                             
-                            # Monitor container startup
-                            for i in {1..12}; do
+                            # Check container health
+                            for i in {1..6}; do
                                 if docker ps --filter "name=${APP_NAME}" --format "{{.Status}}" | grep -q "healthy"; then
                                     echo "Container is healthy!"
                                     break
                                 fi
-                                echo "Waiting for container to become healthy... (Attempt \$i/12)"
+                                echo "Attempt \$i/6: Waiting for container to become healthy..."
                                 docker compose logs --tail 20
                                 sleep 10
                             done
                             
-                            # Verify deployment
-                            echo "Current container status:"
+                            # Show final status
                             docker compose ps
-                            
-                            echo "Testing application endpoint:"
-                            curl -v http://localhost:8080/
+                            echo "Application response:"
+                            curl -s http://localhost:8080/
                             
                             # Cleanup
                             docker logout
                         """
                         
+                        // Write the script to a temporary file and execute it over SSH
+                        writeFile file: 'deploy.sh', text: deployScript
                         sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
+                            chmod +x deploy.sh
+                            scp -i \$SSH_KEY -o StrictHostKeyChecking=no deploy.sh ${EC2_USER}@${EC2_IP}:/tmp/deploy.sh
+                            ssh -i \$SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} 'bash /tmp/deploy.sh'
+                            ssh -i \$SSH_KEY -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} 'rm /tmp/deploy.sh'
                         """
                     }
                 }
