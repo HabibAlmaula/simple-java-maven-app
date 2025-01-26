@@ -134,108 +134,141 @@ pipeline {
             }
         }
 
-//          stage('Deploy to EC2') {
-//             steps {
-//                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
-//                     script {
-//                         // Create deployment directory and docker-compose file
-//                         def setupCommands = """
-//                             mkdir -p ${DEPLOY_DIR}
-                            
-//                             cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
-// version: "3.8"
-// services:
-//   app:
-//     image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-//     container_name: ${APP_NAME}
-//     ports:
-//       - "8080:8080"
-//     restart: always
-//     healthcheck:
-//       test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-//       interval: 30s
-//       timeout: 10s
-//       retries: 3
-// EOL
-
-//                             # Pull and deploy the new version
-//                             cd ${DEPLOY_DIR}
-//                             docker compose pull
-//                             docker compose up -d --force-recreate
-                            
-//                             # Wait for container to be healthy
-//                             echo "Waiting for container to be healthy..."
-//                             sleep 30
-                            
-//                             # Check deployment status
-//                             docker compose ps
-//                             docker compose logs --tail 50
-//                         """
-                        
-//                         // Execute deployment on EC2
-//                         sh """
-//                             ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
-//                         """
-//                     }
-//                 }
-//             }
-//         }
-
-        stage('Deploy to EC2') {
+         stage('Deploy to EC2') {
             steps {
-                withCredentials([
-                    sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY'),
-                    usernamePassword(credentialsId: 'docker-hub-credentials', 
-                                usernameVariable: 'DOCKER_USER', 
-                                passwordVariable: 'DOCKER_PASS')
-                ]) {
+                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def setupCommands = """
+                        // First, let's prepare our deployment script with proper error handling
+                        def deploymentScript = """
+                            # Exit on any error
+                            set -e
+                            
+                            # Create deployment directory if it doesn't exist
+                            echo "Creating deployment directory..."
                             mkdir -p ${DEPLOY_DIR}
                             
-                            # Login to Docker Hub
-                            echo \${DOCKER_PASS} | docker login -u \${DOCKER_USER} --password-stdin
+                            # Ensure docker and docker-compose are installed
+                            if ! command -v docker &> /dev/null || ! command -v docker-compose &> /dev/null; then
+                                echo "Docker or docker-compose not found. Please install them first."
+                                exit 1
+                            fi
                             
+                            # Create docker-compose.yml with improved configuration
+                            echo "Creating docker-compose.yml..."
                             cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
+        version: "3.8"
         services:
         app:
             image: ${DOCKER_IMAGE}:${DOCKER_TAG}
             container_name: ${APP_NAME}
             ports:
             - "8080:8080"
-            restart: always
-            pull_policy: always
+            restart: unless-stopped
             healthcheck:
-            test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+            test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
             interval: 30s
             timeout: 10s
             retries: 3
+            start_period: 40s
+            deploy:
+            resources:
+                limits:
+                memory: 512M
+                reservations:
+                memory: 256M
+            logging:
+            options:
+                max-size: "10m"
+                max-file: "3"
         EOL
-
-                            # Pull and deploy the new version
+                            
+                            # Navigate to deployment directory
                             cd ${DEPLOY_DIR}
-                            docker compose pull || exit 1
-                            docker compose up -d --force-recreate || exit 1
                             
-                            # Wait for container to be healthy with timeout
-                            echo "Waiting for container to be healthy..."
-                            timeout 60 bash -c 'until docker compose ps | grep -q "(healthy)"; do sleep 5; done' || {
-                                echo "Container failed to become healthy within timeout"
-                                docker compose logs
-                                exit 1
-                            }
+                            # Stop any existing containers gracefully
+                            echo "Stopping existing containers..."
+                            if [ -f docker-compose.yml ]; then
+                                docker-compose down --remove-orphans || true
+                            fi
                             
-                            # Verify deployment
-                            if ! docker compose ps | grep -q "Up"; then
-                                echo "Container failed to start properly"
-                                docker compose logs
+                            # Clean up old images to prevent disk space issues
+                            echo "Cleaning up old images..."
+                            docker image prune -f
+                            
+                            # Pull the new image
+                            echo "Pulling new image..."
+                            docker-compose pull
+                            
+                            # Start the new container
+                            echo "Starting new container..."
+                            docker-compose up -d --force-recreate
+                            
+                            # Wait for container to be healthy
+                            echo "Waiting for container health check..."
+                            TIMEOUT=180
+                            INTERVAL=10
+                            ELAPSED=0
+                            
+                            while [ \$ELAPSED -lt \$TIMEOUT ]; do
+                                if docker-compose ps | grep -q "healthy"; then
+                                    echo "Container is healthy!"
+                                    break
+                                fi
+                                
+                                if docker-compose ps | grep -q "unhealthy\|exit"; then
+                                    echo "Container failed health check or exited"
+                                    docker-compose logs --tail 100
+                                    exit 1
+                                fi
+                                
+                                echo "Waiting for container to become healthy... (\$ELAPSED/\$TIMEOUT seconds)"
+                                sleep \$INTERVAL
+                                ELAPSED=\$((ELAPSED + INTERVAL))
+                            done
+                            
+                            if [ \$ELAPSED -ge \$TIMEOUT ]; then
+                                echo "Deployment timed out after \$TIMEOUT seconds"
+                                docker-compose logs --tail 100
                                 exit 1
                             fi
+                            
+                            # Verify application is responding
+                            echo "Verifying application response..."
+                            if ! curl -s -f http://localhost:8080/actuator/health; then
+                                echo "Application health check failed"
+                                docker-compose logs --tail 100
+                                exit 1
+                            fi
+                            
+                            # Show deployment status and logs
+                            echo "Deployment successful! Current status:"
+                            docker-compose ps
+                            docker-compose logs --tail 20
                         """
                         
-                        sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
-                        """
+                        // Execute deployment with retry mechanism
+                        def maxRetries = 3
+                        def retryCount = 0
+                        def deployed = false
+                        
+                        while (!deployed && retryCount < maxRetries) {
+                            try {
+                                sh """
+                                    ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${EC2_USER}@${EC2_IP} '${deploymentScript}'
+                                """
+                                deployed = true
+                                echo "Deployment completed successfully!"
+                            } catch (Exception e) {
+                                retryCount++
+                                if (retryCount < maxRetries) {
+                                    echo "Deployment attempt ${retryCount} failed. Retrying in 30 seconds..."
+                                    sleep 30
+                                } else {
+                                    echo "All deployment attempts failed. Last error: ${e.getMessage()}"
+                                    throw e
+                                }
+                            }
+                        }
                     }
                 }
             }
