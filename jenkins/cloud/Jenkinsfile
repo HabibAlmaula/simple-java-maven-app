@@ -138,27 +138,26 @@ pipeline {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        // Create deployment directory and docker-compose file
+                        // Notice the careful preservation of indentation in the heredoc
                         def setupCommands = """
                             mkdir -p ${DEPLOY_DIR}
                             
                             cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
-                            version: "3.8"
-                            services:
-                            app:
-                                image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-                                container_name: ${APP_NAME}
-                                ports:
-                                - "8080:8080"
-                                restart: always
-                                healthcheck:
-                                test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
-                                interval: 30s
-                                timeout: 10s
-                                retries: 3
-                            EOL
+        version: "3.8"
+        services:
+        app:
+            image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+            container_name: ${APP_NAME}
+            ports:
+            - "8080:8080"
+            restart: always
+            healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+        EOL
 
-                            # Pull and deploy the new version
                             cd ${DEPLOY_DIR}
                             docker compose pull
                             docker compose up -d --force-recreate
@@ -172,7 +171,6 @@ pipeline {
                             docker compose logs --tail 50
                         """
                         
-                        // Execute deployment on EC2
                         sh """
                             ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
                         """
