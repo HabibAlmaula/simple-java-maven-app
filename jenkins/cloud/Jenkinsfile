@@ -124,49 +124,29 @@ pipeline {
         stage('Build & Push Docker Image') {
             steps {
                 script {
-                    // Create a fresh directory for the JAR
                     sh 'rm -rf docker-build && mkdir -p docker-build'
                     dir('docker-build') {
                         try {
-                            // Unstash with verification
                             unstash 'app-jar'
-                            
-                            // Verify JAR was unstashed correctly
-                            sh '''
-                                echo "Contents of docker-build directory:"
-                                ls -la
-                                
-                                echo "Looking for JAR files:"
-                                find . -name "*.jar" -type f
-                            '''
-                            
-                            // Copy Dockerfile to build context
                             sh 'cp ../Dockerfile .'
                             
-                            // Build and push Docker image
                             withCredentials([usernamePassword(
                                 credentialsId: 'docker-hub-credentials',
                                 usernameVariable: 'DOCKER_USER',
                                 passwordVariable: 'DOCKER_PASS'
                             )]) {
-                                // More secure way to handle Docker login
                                 sh '''
-                                     echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                                    # Login to Docker Hub
+                                    echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
                                     
-                                    # Use buildx for building with containerd snapshotter
+                                    # Build and push using BuildKit
                                     docker buildx build \
                                         --platform linux/amd64,linux/arm64 \
-                                        ${DOCKER_BUILD_ARGS} \
+                                        --progress=plain \
+                                        --build-arg BUILDKIT_INLINE_CACHE=1 \
+                                        --push \
                                         -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
-                                        --push \
-                                        .
-                                    
-                                    # Tag latest
-                                    docker buildx build \
-                                        --platform linux/amd64,linux/arm64 \
-                                        ${DOCKER_BUILD_ARGS} \
                                         -t ${DOCKER_IMAGE}:latest \
-                                        --push \
                                         .
                                 '''
                             }
