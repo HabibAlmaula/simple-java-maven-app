@@ -9,7 +9,7 @@ pipeline {
         // AWS configuration
         AWS_DEFAULT_REGION = 'ap-southeast-1'
         EC2_USER = 'ubuntu'
-        EC2_IP = '47.129.50.98'  // Your EC2 instance IP
+        EC2_IP = '18.140.70.237'  // Your EC2 instance IP
         
         // Application paths
         APP_NAME = 'spring-boot-app'
