@@ -138,106 +138,43 @@ pipeline {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def deploymentScript = """
-                            # Exit on any error
-                            set -e
-                            
-                            echo "Creating deployment directory..."
+                        // Create deployment directory and docker-compose file
+                        def setupCommands = """
                             mkdir -p ${DEPLOY_DIR}
                             
-                            # Verify Docker installation
-                            if ! command -v docker >/dev/null 2>&1 || ! command -v docker compose >/dev/null 2>&1; then
-                                echo "Docker or docker-compose not found. Please install them first."
-                                exit 1
-                            fi
-                            
-                            echo "Creating docker-compose.yml..."
                             cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
-        version: "3.8"
-        services:
-        app:
-            image: ${DOCKER_IMAGE}:${DOCKER_TAG}
-            container_name: ${APP_NAME}
-            ports:
-            - "8080:8080"
-            restart: unless-stopped
-            healthcheck:
-            test: ["CMD-SHELL", "curl -f http://localhost:8080/actuator/health || exit 1"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-            start_period: 40s
-            deploy:
-            resources:
-                limits:
-                memory: 512M
-                reservations:
-                memory: 256M
-            logging:
-            options:
-                max-size: "10m"
-                max-file: "3"
-        EOL
-                            
+version: "3.8"
+services:
+  app:
+    image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+    container_name: ${APP_NAME}
+    ports:
+      - "8080:8080"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+EOL
+
+                            # Pull and deploy the new version
                             cd ${DEPLOY_DIR}
-                            
-                            echo "Stopping existing containers..."
-                            if [ -f docker-compose.yml ]; then
-                                docker compose down --remove-orphans || true
-                            fi
-                            
-                            echo "Cleaning up old images..."
-                            docker image prune -f
-                            
-                            echo "Pulling new image..."
                             docker compose pull
-                            
-                            echo "Starting new container..."
                             docker compose up -d --force-recreate
                             
-                            echo "Waiting for container health check..."
-                            TIMEOUT=180
-                            INTERVAL=10
-                            ELAPSED=0
+                            # Wait for container to be healthy
+                            echo "Waiting for container to be healthy..."
+                            sleep 30
                             
-                            while [ \$ELAPSED -lt \$TIMEOUT ]; do
-                                if docker compose ps | grep -q "healthy"; then
-                                    echo "Container is healthy!"
-                                    break
-                                fi
-                                
-                                if docker compose ps | grep -q "unhealthy\\|exit"; then
-                                    echo "Container failed health check or exited"
-                                    docker compose logs --tail 100
-                                    exit 1
-                                fi
-                                
-                                echo "Waiting for container to become healthy... (\$ELAPSED/\$TIMEOUT seconds)"
-                                sleep \$INTERVAL
-                                ELAPSED=\$((\$ELAPSED + \$INTERVAL))
-                            done
-                            
-                            if [ \$ELAPSED -ge \$TIMEOUT ]; then
-                                echo "Deployment timed out after \$TIMEOUT seconds"
-                                docker compose logs --tail 100
-                                exit 1
-                            fi
-                            
-                            echo "Verifying application response..."
-                            if ! curl -s -f http://localhost:8080/actuator/health; then
-                                echo "Application health check failed"
-                                docker compose logs --tail 100
-                                exit 1
-                            fi
-                            
-                            echo "Deployment successful! Current status:"
+                            # Check deployment status
                             docker compose ps
-                            docker compose logs --tail 20
+                            docker compose logs --tail 50
                         """
                         
-                        // Execute deployment
+                        // Execute deployment on EC2
                         sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=10 ${EC2_USER}@${EC2_IP} "${deploymentScript}"
+                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
                         """
                     }
                 }
