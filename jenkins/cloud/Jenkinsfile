@@ -146,7 +146,7 @@ pipeline {
                             mkdir -p ${DEPLOY_DIR}
                             
                             # Verify Docker installation
-                            if ! command -v docker >/dev/null 2>&1 || ! command -v docker-compose >/dev/null 2>&1; then
+                            if ! command -v docker >/dev/null 2>&1 || ! command -v docker compose >/dev/null 2>&1; then
                                 echo "Docker or docker-compose not found. Please install them first."
                                 exit 1
                             fi
