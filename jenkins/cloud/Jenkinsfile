@@ -177,7 +177,7 @@ pipeline {
         DOCKER_TAG = "v${BUILD_NUMBER}"
         AWS_DEFAULT_REGION = 'ap-southeast-1'
         EC2_USER = 'ubuntu'
-        EC2_IP = '47.129.50.98'
+        EC2_IP = '18.140.70.237'
         APP_NAME = 'spring-boot-app'
         DEPLOY_DIR = '/opt/springboot-app'
     }
