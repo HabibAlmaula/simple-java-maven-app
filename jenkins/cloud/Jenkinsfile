@@ -111,10 +111,6 @@ pipeline {
                             
                             // Copy Dockerfile to build context
                             sh 'cp ../Dockerfile .'
-                            sh '''
-                                echo "Contents of docker-build directory after copying Dockerfile:"
-                                cat /etc/docker/daemon.json
-                                '''
                             
                             // Build and push Docker image
                             withCredentials([usernamePassword(
