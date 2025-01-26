@@ -2,13 +2,18 @@ pipeline {
     agent any
     
     environment {
+        // Docker configuration
         DOCKER_IMAGE = 'habibalmaula/spring-boot-app'
-        DOCKER_TAG = "v0.1.0-${BUILD_NUMBER}"
+        DOCKER_TAG = "v${BUILD_NUMBER}"
+        
+        // AWS configuration
         AWS_DEFAULT_REGION = 'ap-southeast-1'
-        // EC2 Configuration
-        EC2_USER = 'ubuntu'                    // The default user for Amazon Linux instances
-        EC2_IP = '47.129.50.98'  // Replace with your EC2 instance's public IP
-
+        EC2_USER = 'ubuntu'
+        EC2_IP = '47.129.50.98'  // Your EC2 instance IP
+        
+        // Application paths
+        APP_NAME = 'spring-boot-app'
+        DEPLOY_DIR = '/opt/springboot-app'
     }
     
     stages {
@@ -16,45 +21,40 @@ pipeline {
             agent {
                 docker {
                     image 'maven:3.9.5'
-                    // Docker arguments are specified directly here
                     args '''
                         -v maven-repo:/root/.m2 
                         -e MAVEN_CONFIG=/root/.m2
                         -e HOME=/root
                         --user root
                     '''
-                    
+                    reuseNode true
                 }
             }
             steps {
                 script {
-                    // First ensure we have the correct directory structure
+                    // Ensure Maven repository permissions
                     sh '''
                         mkdir -p $HOME/.m2/repository
                         chmod -R 777 $HOME/.m2
-                        
-                        echo "Maven environment:"
-                        echo "HOME=$HOME"
-                        echo "MAVEN_CONFIG=$MAVEN_CONFIG"
-                        
                         mvn clean package -DskipTests
                     '''
                 }
+                // Save the JAR for later stages
                 stash includes: 'target/*.jar', name: 'app-jar'
             }
         }
         
-        stage('Test') {
+        stage('Run Tests') {
             agent {
                 docker {
                     image 'maven:3.9.5'
-                    // Same Docker arguments for consistency
                     args '''
                         -v maven-repo:/root/.m2 
                         -e MAVEN_CONFIG=/root/.m2
                         -e HOME=/root
                         --user root
                     '''
+                    reuseNode true
                 }
             }
             steps {
@@ -73,18 +73,16 @@ pipeline {
             }
         }
         
-        stage('Build Docker Image') {
+        stage('Build & Push Docker Image') {
             steps {
-                unstash 'app-jar'
                 script {
+                    // Retrieve the JAR file
+                    unstash 'app-jar'
+                    
+                    // Build Docker image
                     docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-                }
-            }
-        }
-        
-        stage('Push Docker Image') {
-            steps {
-                script {
+                    
+                    // Push to Docker Hub
                     withCredentials([usernamePassword(
                         credentialsId: 'docker-hub-credentials',
                         usernameVariable: 'DOCKER_USER',
@@ -93,36 +91,8 @@ pipeline {
                         sh """
                             echo \${DOCKER_PASS} | docker login -u \${DOCKER_USER} --password-stdin
                             docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('Setup EC2') {
-            steps {
-                withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
-                    script {
-                        // Create a properly formatted docker-compose.yml file
-                        def setupCmd = """
-                            mkdir -p /opt/springboot-app
-                            
-                            # Creating docker-compose.yml with explicit formatting
-                            echo 'version: \"3.8\"' > /opt/springboot-app/docker-compose.yml
-                            echo 'services:' >> /opt/springboot-app/docker-compose.yml
-                            echo '  app:' >> /opt/springboot-app/docker-compose.yml
-                            echo '    image: \${DOCKER_IMAGE_NAME}:\${IMAGE_TAG}' >> /opt/springboot-app/docker-compose.yml
-                            echo '    ports:' >> /opt/springboot-app/docker-compose.yml
-                            echo '      - \"8080:8080\"' >> /opt/springboot-app/docker-compose.yml
-                            echo '    restart: always' >> /opt/springboot-app/docker-compose.yml
-                            
-                            # Verify the file contents
-                            echo "Generated docker-compose.yml contents:"
-                            cat /opt/springboot-app/docker-compose.yml
-                        """
-                        
-                        sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ubuntu@47.129.50.98 '${setupCmd}'
+                            docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
+                            docker push ${DOCKER_IMAGE}:latest
                         """
                     }
                 }
@@ -133,71 +103,63 @@ pipeline {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
-                        def deployCmd = """
-                            # Export deployment variables
-                            export DOCKER_IMAGE_NAME=${DOCKER_IMAGE}
-                            export IMAGE_TAG=${DOCKER_TAG}
+                        // Create deployment directory and docker-compose file
+                        def setupCommands = """
+                            mkdir -p ${DEPLOY_DIR}
                             
-                            # Navigate to app directory
-                            cd /opt/springboot-app
-                            
-                            # Verify docker-compose.yml contents before deployment
-                            echo "Current docker-compose.yml contents:"
-                            cat docker-compose.yml
-                            
-                            # Pull and restart containers
+                            cat > ${DEPLOY_DIR}/docker-compose.yml << 'EOL'
+version: "3.8"
+services:
+  app:
+    image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+    container_name: ${APP_NAME}
+    ports:
+      - "8080:8080"
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+EOL
+
+                            # Pull and deploy the new version
+                            cd ${DEPLOY_DIR}
                             docker compose pull
                             docker compose up -d --force-recreate
                             
-                            # Wait for container to start
-                            sleep 10
+                            # Wait for container to be healthy
+                            echo "Waiting for container to be healthy..."
+                            sleep 30
                             
                             # Check deployment status
-                            echo "Container status:"
                             docker compose ps
-                            
-                            # Check container logs
-                            echo "Container logs:"
-                            docker compose logs
+                            docker compose logs --tail 50
                         """
                         
+                        // Execute deployment on EC2
                         sh """
-                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ubuntu@47.129.50.98 '${deployCmd}'
+                            ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${setupCommands}'
                         """
                     }
                 }
             }
         }
-
-        // stage('Deploy to EC2') {
-        //     steps {
-        //         withCredentials([
-        //             sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY'),
-        //             aws(credentialsId: 'aws-credentials-id', region: 'ap-southeast-1')
-        //         ]) {
-        //             script {
-        //                 def deployCmd = """
-        //                     export DOCKER_IMAGE_NAME=${DOCKER_IMAGE}
-        //                     export IMAGE_TAG=${DOCKER_TAG}
-        //                     cd /opt/springboot-app
-        //                     docker compose pull
-        //                     docker compose up -d --force-recreate
-        //                 """
-                        
-        //                 // Use the environment variables for SSH connection
-        //                 sh """
-        //                     ssh -i \${SSH_KEY} -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_IP} '${deployCmd}'
-        //                 """
-        //             }
-        //         }
-        //     }
-        // }
     }
     
     post {
         always {
-            sh 'docker logout'
-            cleanWs()
+            script {
+                // Cleanup
+                sh 'docker logout'
+                cleanWs()
+            }
+        }
+        success {
+            echo "Deployment completed successfully!"
+        }
+        failure {
+            echo "Deployment failed. Check logs for details."
         }
     }
 }
