@@ -95,16 +95,27 @@ pipeline {
             }
         }
 
-        stage('Setup BuildKit Builder') {
+       stage('Setup BuildKit Builder') {
             steps {
                 script {
                     sh '''
-                        # Create a new builder instance if it doesn't exist
-                        if ! docker buildx inspect buildx-builder > /dev/null 2>&1; then
-                            docker buildx create --name buildx-builder --driver docker-container --driver-opt network=host
+                        # Create a new Docker context if it doesn't exist
+                        if ! docker context inspect jenkins-builder > /dev/null 2>&1; then
+                            docker context create jenkins-builder
                         fi
                         
-                        # Set the builder as default and ensure it's running
+                        # Use the new context
+                        docker context use jenkins-builder
+                        
+                        # Create builder with the specific context
+                        if ! docker buildx inspect buildx-builder > /dev/null 2>&1; then
+                            docker buildx create --name buildx-builder \
+                                --driver docker-container \
+                                --driver-opt network=host \
+                                --context jenkins-builder
+                        fi
+                        
+                        # Set the builder as default and bootstrap it
                         docker buildx use buildx-builder
                         docker buildx inspect --bootstrap
                     '''
