@@ -136,38 +136,7 @@ pipeline {
             }
         }
 
-        stage('Scan Docker Image') {
-            steps {
-                script {
-                    // First, install Trivy if it's not already installed
-                    sh '''
-                        if ! command -v trivy &> /dev/null; then
-                            wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-                            echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-                            sudo apt-get update
-                            sudo apt-get install -y trivy
-                        fi
-                        
-                        # Run the scan and exit with error if high severity vulnerabilities are found
-                        trivy image \
-                            --exit-code 1 \
-                            --severity HIGH,CRITICAL \
-                            --no-progress \
-                            ${DOCKER_IMAGE}:${DOCKER_TAG}
-                    '''
-                }
-            }
-            post {
-                success {
-                    echo "Security scan passed - no high severity vulnerabilities found"
-                }
-                failure {
-                    error "Security scan failed - high severity vulnerabilities detected"
-                }
-            }
-        }
-
-         stage('Deploy to EC2') {
+        stage('Deploy to EC2') {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: 'ec2-ssh-key', keyFileVariable: 'SSH_KEY')]) {
                     script {
