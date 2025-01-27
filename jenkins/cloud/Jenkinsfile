@@ -125,6 +125,8 @@ pipeline {
                                     docker push ${DOCKER_IMAGE}:latest
                                 '''
                             }
+                            // Confirm Docker image was pushed and continue to deploy
+                            input message: 'Docker image telah dibuat dan di-push. Lanjutkan ke tahap deploy?'
                         } catch (Exception e) {
                             echo "Error during Docker build stage: ${e.getMessage()}"
                             throw e

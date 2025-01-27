@@ -22,6 +22,7 @@ node {
             stage('Test') {
                 try {
                     sh 'mvn test'
+                    input message: 'Lanjutkan ke tahap Deploy?'
                 } finally {
                     // The 'always' condition in scripted pipeline
                     junit 'target/surefire-reports/*.xml'
@@ -32,10 +33,8 @@ node {
                 sh '''
                     chmod +x ./jenkins/scripts/deliver.sh
                     ./jenkins/scripts/deliver.sh
-                    sleep 20  # Sleep for 1 minute
+                    sleep 60  # Sleep for 1 minute
                 '''
-                input message: 'Finished using the website? (Click "Proceed" to continue)'
-
             }
             
             // Success post condition
